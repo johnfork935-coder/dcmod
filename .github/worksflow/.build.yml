@@ -1,0 +1,120 @@
+name: Build DC Mod APK
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+  with:
+    packages: 'platforms;android-34 build-tools;34.0.0'
+    accept-android-sdk-licenses: true
+      - name: Write project files
+        run: |
+          mkdir -p app/src/main/java/com/ollie/dcmod
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS); repositories { google(); mavenCentral() } }
+          rootProject.name = "DCMod"
+          include ':app'
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application' version '8.5.2' apply false
+            id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+          android {
+            namespace 'com.ollie.dcmod'
+            compileSdk 34
+            defaultConfig { applicationId "com.ollie.dcmod"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+            buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+            kotlinOptions { jvmTarget = '17' }
+          }
+          dependencies {
+            implementation 'androidx.appcompat:appcompat:1.7.0'
+            implementation 'androidx.webkit:webkit:1.11.0'
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+            <application android:label="DC Mod" android:theme="@style/Theme.AppCompat.NoActionBar" android:usesCleartextTraffic="true" android:allowBackup="false" android:hardwareAccelerated="true">
+              <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
+                <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources><string name="app_name">DC Mod</string></resources>
+          EOF
+          cat > app/src/main/java/com/ollie/dcmod/MainActivity.kt <<'EOF'
+          package com.ollie.dcmod
+          import android.annotation.SuppressLint
+          import android.os.Bundle
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import android.webkit.CookieManager
+          import androidx.appcompat.app.AppCompatActivity
+          class MainActivity : AppCompatActivity() {
+            private lateinit var web: WebView
+            @SuppressLint("SetJavaScriptEnabled")
+            override fun onCreate(s: Bundle?) {
+              super.onCreate(s)
+              web = WebView(this)
+              web.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+              setContentView(web)
+              web.settings.apply {
+                javaScriptEnabled = true; domStorageEnabled = true; databaseEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                userAgentString = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                loadWithOverviewMode = true; useWideViewPort = true
+              }
+              CookieManager.getInstance().setAcceptCookie(true)
+              CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+              web.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(v: WebView, u: String) {
+                  super.onPageFinished(v, u)
+                  try { val js = assets.open("inject.js").bufferedReader().use { it.readText() }; v.evaluateJavascript(js, null) } catch (_: Exception) {}
+                }
+              }
+              web.loadUrl("https://discord.com/app")
+            }
+            override fun onBackPressed() { if (web.canGoBack()) web.goBack() else super.onBackPressed() }
+          }
+          EOF
+          cat > app/src/main/assets/inject.js <<'EOF'
+          (()=>{const log=(...a)=>console.log('[dcmod]',...a);const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          function mods(){const k=Object.keys(window).find(x=>x.startsWith('webpackChunk'));if(!k)return[];const a=window[k],o=a.push,m=[];a.push=function(){const r=o.apply(this,arguments);for(const i in arguments[0][1]){try{m.push(arguments[0][1][i])}catch(_){}}return r};try{a.push([[Math.random()],{},x=>x])}catch(_){}return m}
+          function u(ms){for(const m of ms){try{const e=m?.exports;if(e?.getCurrentUser){const o=e.getCurrentUser;e.getCurrentUser=function(...a){const u=o.apply(this,a);if(u&&u.id){u.premiumType=2;u.flags=(u.flags||0)|1}return u};log('user patched')}}catch(_){}}}
+          function s(ms){for(const m of ms){try{const e=m?.exports;if(e?.getMediaEngine){const o=e.getMediaEngine;e.getMediaEngine=function(...a){const g=o.apply(this,a);try{if(g?.setVideoQuality){const q=g.setVideoQuality.bind(g);g.setVideoQuality=()=>q(1080)}}catch(_){}return g}}}catch(_){}}
+          try{if(!window.DiscordNative)window.DiscordNative={};window.DiscordNative.features={...(window.DiscordNative.features||{}),VIDEO_QUALITY_HIGH:true,VIDEO_QUALITY_4K:true}}catch(_){}}
+          function k(){const c=document.createElement('style');c.textContent='[class*="premiumUpsell" i],[class*="nitroUpsell" i],[class*="premiumPromo" i],[class*="nitroPromo" i]{display:none!important}';document.head.appendChild(c)}
+          (async()=>{for(let i=0;i<40;i++){const m=mods();if(m.length){u(m);s(m);break}await sleep(500)}k();log('booted')})()})();
+          EOF
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+      - name: Build APK
+        run: gradle wrapper --gradle-version 8.7 && ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dcmod-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
